@@ -1,0 +1,749 @@
+---
+title: "Final Project"
+author: "Harsh Pandya, Prashul Kumar, Rushank Sheta"
+output:
+  html_document:
+    df_print: paged
+---
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+library(dplyr)
+library(glmnet)
+library(caret)
+library(pROC)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(repr)
+library(gbm)
+library(ggpubr)
+library(e1071)
+#install.packages("xgboost")
+library(xgboost)
+#install.packages("MLmetrics")
+library(MLmetrics)
+library(class)
+theme_set(theme_bw())
+set.seed(11*11)
+```
+
+
+```{r}
+df = read.csv('adult.csv')
+dim(df)
+```
+
+```{r}
+str(df)
+```
+#### Exploratory Data Analysis
+```{r}
+head(df)
+tail(df)
+```
+
+```{r}
+summary(df)
+```
+```{r}
+colSums(is.na(df))
+```
+We can see above that there are no 'NA' values in our data
+
+```{r}
+colSums(df=="")
+```
+
+```{r}
+unique(df$workclass)
+```
+
+However we do notice presence of '?' in some of the columns which seems to be data quality issue
+
+```{r}
+unique(df$occupation)
+```
+
+```{r}
+colSums(df=="?")
+```
+Thus in total we have around workclass, occupation and country columns which have issues with '?' in the dataset
+
+```{r}
+df2 = df[df$workclass != "?", ]
+dim(df2)
+df3 = df2[df2$occupation != "?", ]
+dim(df3)
+df4 = df3[df3$native.country != "?", ]
+dim(df4)
+((nrow(df)-nrow(df4))/nrow(df))*100.0
+```
+Since the bad quality data does not make sense in our case, hence we intend to remove it from the respective columns and delete the entire row. On doing that we observe that in total we have a reduction of around 7% dataset which is not that significant. Hence instead of using replacement techniques of bad data with mean or mode, we intend to remove that from the dataset and finally left with 30162 rows as compared to 32561
+
+
+```{r}
+df = df4
+dim(df)
+colSums(df=="?")
+```
+
+
+```{r}
+ggplot(data = df, aes(x = age)) +
+  geom_bar() +
+  ggtitle("Distribution of Ages") +
+  xlab("Age") +
+  ylab("Count")
+```
+"The distribution seems to be right-skewed, with more data concentrated from 25 to 50" describes the shape of a distribution and provides insight into the central tendency of the data. Since it is right skewed, it  indicates that there are a few observations with very high values, causing the distribution to be pulled in the direction of those higher values. The bulk of the data, or the majority of observations, is concentrated within the range of 25 to 50. This means that most of the values fall within this range, contributing to the peak or central tendency of the distribution.
+
+
+```{r}
+ggplot(data = df, aes(x = education.num, fill = education)) +
+  geom_bar() +
+  ggtitle("Distribution of Education Levels") +
+  xlab("Education Number") +
+  ylab("Count")
+```
+This particular distribution provides insights into the educational diversity of the dataset. The interpretation of the bar plot suggests that the dataset has a significant number of individuals with the highest education level being "HS grad" (High School Graduate), followed by "Some College" and "Bachelors". As High school education is often considered a baseline or minimum qualification, and a large proportion of the population attains at least a high school diploma, its count is the highest. However, the declining trend in counts from high school to bachelor's suggests a natural progression where fewer individuals attain higher levels of education.
+
+
+```{r}
+df$education.segment <- cut(df$education.num, breaks = c(0, 4, 8, 12, 17), labels = c("0 to 4", "5 to 8", "9 to 12", ">= 13"))
+
+ggplot(data = df, aes(x = education.segment)) +
+  geom_bar(fill = "skyblue") +
+  ggtitle("Distribution of Education Segments") +
+  xlab("Education Segment") +
+  ylab("Count")
+```
+This plot provides a visual representation of the distribution of individuals across the education segments. The bar plot reveals that the education segment "9 to 12" has the highest count, exceeding 15,000 individuals, while the "0 to 4" segment has the lowest count. This distribution suggests a concentration of individuals with education levels corresponding to high school to some college education in the dataset. The lower count in the "0 to 4" segment could be attributed to factors such as a smaller representation of individuals with very basic education levels or potential data collection biases. Overall, the distribution provides insights into the educational diversity of the dataset, with a notable concentration in the middle education segments.
+
+##### Now we have created a new variable capital using capital gain and loss since having both of them is kind of redundant, hence we utilize this for analysis
+```{r}
+df$capital <- df$capital.gain - df$capital.loss
+
+ggplot(data = df) +
+  aes(x = capital) +
+  geom_histogram(binwidth = 1000, fill = "blue") + 
+  ggtitle("Distribution of Capital") +
+  xlab("Capital") +
+  ylab("Count")
+```
+The histogram illustrates the distribution of capital values in the dataset, revealing a notable concentration of individuals with lower capital and a comparatively smaller number of individuals with higher capital. This pattern suggests a right-skewed distribution, where the majority of individuals have lower capital, and the frequency gradually decreases as capital values increase which is an ideal case in the real world as well. 
+
+
+```{r}
+summary(df$capital)
+```
+
+```{r}
+df$hours.per.week.segment <- cut(df$hours.per.week,
+                                         breaks = c(0, 9, 19, 29, 39, 49, 59, 69, 79, 89, 100),
+                                         labels = c("1-9", "10-19", "20-29", "30-39", "40-49",
+                                                    "50-59", "60-69", "70-79", "80-89", "90-99"))
+
+ggplot(data = df) +
+  aes(x = hours.per.week.segment) +
+  geom_bar(fill = "blue") +
+  ggtitle("Distribution of Hours per Week Segments") +
+  xlab("Hours per Week Segment") +
+  ylab("Count")
+```
+
+
+The histogram depicts the distribution of individuals across different segments based on the number of hours worked per week. The majority of individuals fall into the "40-49" hours per week segment, indicating a commonality in standard full-time work hours. Interestingly, there is a decline in counts for segments representing fewer than 40 hours per week, suggesting that a significant proportion of individuals in the dataset engage in regular full-time employment. Additionally, the decline in counts beyond the "40-49" segment implies that overtime work or extended hours are less prevalent in the sampled population. The distribution provides insights into the prevalent work hour patterns within the dataset, with a concentration around standard full-time work hours.
+
+
+##### Mean number of working hours per week for each gender -
+```{r}
+df %>%
+  select(sex, occupation, hours.per.week) %>%
+  group_by(sex, occupation) %>%
+  summarise(work = mean(hours.per.week, na.rm = TRUE)) %>%
+  ggplot(aes(x = occupation, y = work, fill = sex)) +
+  geom_bar(position = "dodge", stat = 'identity') +
+  ggtitle("Mean hours worked by gender for each occupation") +
+  theme(plot.title = element_text(size = 10), axis.text.x = element_text(angle = 90, vjust = 1))
+```
+The bar chart reveals distinct patterns in the mean hours worked by gender for specific occupations. For males, executive managerial roles, farming-fishing, and transportation-moving occupations show the highest average hours worked. On the other hand, females tend to have higher average working hours in craft repair, executive-managerial positions, and private house-serving roles. These differences highlight gender-specific trends in the distribution of working hours across various occupational categories. It's essential to consider these patterns when addressing issues related to work-life balance, occupational choices, and potential gender-based disparities in working hours within different job sectors.
+
+
+
+```{r}
+ggplot(df, aes(x = workclass, y = hours.per.week, fill = workclass)) +
+  geom_boxplot() +
+  ggtitle("Hours per Week by Workclass") +
+  theme(plot.title = element_text(size = 18), axis.text.x = element_text(angle = 90, vjust = 1))
+```
+The boxplot illustrates the distribution of hours worked per week across different workclasses. Each box represents the interquartile range (IQR), with the horizontal line inside indicating the median hours worked.  The chart provides insights into the variability and central tendency of working hours within each workclass. It can be observed that certain workclasses, such as "Without-pay" have limited variability and generally lower median working hours, while others, like "Private" and "Self-emp-inc," exhibit wider distributions with higher median values. This visualization helps us in understanding the overall patterns of weekly working hours across diverse workclasses in the dataset.
+
+
+#### Relationship with target variable- 
+For age distribution below, we can see that The percentage of income over 50K increases with age up to 40 years. From that moment it begins to decrease maybe due to retirement.
+```{r}
+ggplot(df, aes(x = age, fill = income)) +
+  geom_histogram(binwidth = 3) +
+  ggtitle('Age distribution of income')+
+  scale_fill_manual(values = c("red", "green"))
+```
+The age distribution histogram illustrates that the percentage of individuals with income over 50,000 Dollars tends to increase steadily up to around 40 years old. This could be attributed to individuals advancing in their careers, gaining experience, and securing higher-paying positions during these initial years of their professional lives. However, beyond the age of 40, there is a gradual decline in the percentage of individuals with income exceeding 50,000 Dolars. This decline might be associated with factors such as career stability, retirement, or a shift towards part-time employment. The visualization provides insights into how age correlates with income levels, highlighting a potential turning point in income distribution around the age of 40.
+
+
+```{r}
+ggplot(df, aes(x = workclass, fill = income)) +
+  geom_bar(position = 'fill') +
+  ylab('Proportion')+
+  ggtitle('Income distribution for Job sector type')+
+  scale_fill_manual(values = c("red", "green")) +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+The visualization illustrates the distribution of income across different workclass categories. The "Without-pay" category predominantly consists of individuals with income below 50,000 Dollars, indicating that a significant proportion of individuals in this category may not earn a substantial income. In contrast, the "Self-emp-inc" category exhibits a higher proportion of individuals with income over $50,000, suggesting that self-employed individuals in incorporated businesses tend to have higher incomes. Similarly, the "Private" sector shows a considerable proportion of individuals with income below 50,000 Dollars, while the "Federal-gov" sector has a higher proportion of individuals with income over 50,000 Dollars. This analysis provides insights into the income distribution among different workclass categories, highlighting disparities in earnings.
+
+
+
+```{r}
+ggplot(data = df) +
+  aes(x=education,fill=income) + 
+  geom_bar(position="fill") + 
+  ylab("Proportion") + 
+  ggtitle('Education Segment v/s Income')+
+  scale_fill_manual(values = c("red", "green")) +
+  theme(axis.text.x = element_text(angle = 90))
+
+```
+The chart illustrates the income distribution across various education segments, with a focus on the proportion of individuals earning less than or equal to $50,000 and those earning more than 50,000 Dollars. Notably, the lower educational segments such as "Preschool" and education levels from "1st to 10th" predominantly fall within the <=50k income category. On the other hand, the higher educational segments, including "Prof-school," "Doctorate," and "Masters," exhibit a larger proportion of individuals earning above 50,000 Dollars. This pattern suggests a positive correlation between higher education levels and an increased likelihood of earning a higher income, emphasizing the significance of education in income outcomes.
+
+
+```{r}
+ggplot(data = df) +
+  aes(x=marital.status,fill=income) + 
+  geom_bar(position="fill") + 
+  ylab("Proportion") +
+  ggtitle('Marital status v/s income')+
+  scale_fill_manual(values = c("red", "green")) +
+  theme(axis.text.x = element_text(angle = 90))
+```
+The visualization portrays the distribution of income across different marital statuses, emphasizing the proportion of individuals earning less than or equal to 50,000 Dollars and those earning more than 50,000 Dollars. The chart indicates that individuals classified as "Never-married" or "Divorced" have a higher proportion within the <=50k income category. In contrast, married individuals, particularly those categorized as "Married-civ-spouse" as well as  "Married-AF-spouse" display a higher proportion in the >=50k income category. This observation suggests a potential correlation between marital status and income, with married individuals tending to have a greater likelihood of earning a higher income.
+
+
+
+```{r}
+ggplot(data = df) +
+  aes(x=race,fill=income) + 
+  geom_bar(position="fill") + 
+  ylab("Proportion") +
+  ggtitle('Race v/s Income distribution')+
+  scale_fill_manual(values = c("red", "green")) +
+  theme(axis.text.x = element_text(angle = 90))
+```
+The above graph demonstrates the distribution of income across different racial categories, highlighting the proportion of individuals earning less than or equal to 50,000 Dollars and those earning more than $50,000. The chart indicates that a higher proportion of individuals from the "Black", "other" racial category falls within the <=50k income category. Conversely, individuals from the "Asian-Pac-Islander" and "White" categories have a relatively higher proportion in the >=50k income category. This observation suggests a potential association between race and income distribution, with variations in income levels across different racial groups.
+
+
+```{r}
+ggplot(data = df) +
+  aes(x=sex,fill=income) + 
+  geom_bar() + 
+  scale_fill_manual(values = c("red", "green")) +
+  ggtitle('Gender v/s Income')
+```
+The visualization depicts the distribution of income across gender categories, differentiating between individuals earning less than or equal to 50,000 Dollars (red) and those earning more than 50,000 Dollars (green). The chart indicates that a higher proportion of males falls within the >50k income category compared to females. In contrast, a larger proportion of females is observed in the <=50k income category. This observation suggests a gender-based disparity in income distribution, with a notable difference in the proportion of individuals earning above and below $50,000 based on gender.
+
+```{r}
+  ggplot(data = df) +
+    aes(x=hours.per.week.segment,fill=income) + 
+    geom_bar(position="fill") + 
+    ylab("Proportion") + 
+    ggtitle('Hours v/s Income') +
+    scale_fill_manual(values = c("red", "green"))
+```
+The visualization illustrates the distribution of income across different segments of hours worked per week, distinguishing between individuals earning less than or equal to 50,000 Dollars (red) and those earning more than 50,000 Dollars (green). The chart shows that the majority of individuals working 1-9 hours per week fall within the <=50k income category, while those working 50-59 hours per week have a more balanced distribution between both income categories. As the number of hours worked per week increases beyond 50, there is a higher proportion of individuals earning above $50,000. However, for those owrkin 90-99 can be considered as exceptions in this case. This suggests a positive correlation between the number of hours worked per week and the likelihood of earning a higher income.
+
+
+
+```{r}
+ggplot(data = df) +
+  aes(x=native.country,fill=income) + 
+  geom_bar(position="fill") + 
+  ylab("Proportion") + 
+  scale_fill_manual(values = c("red", "green"))+
+  theme(axis.text.x = element_text(angle = 90))
+```
+The visualization showcases the distribution of income across different native countries, with the proportion of individuals earning less than or equal to 50,000 Dollars (red) and those earning more than 50,000 Dollars (green). The chart indicates that the majority of individuals from Hati fall within the <=50k income category. In contrast, some other countries, such as India, Taiwan, and Yugoslavia have a higher proportion of individuals in the <=50k income category. This variation suggests differences in income distribution across native countries, possibly influenced by economic factors and job opportunities.
+
+
+```{r}
+summary_data <- data.frame(
+  Income = c(">50K", "<=50K"),
+  Count = c(sum(df$income == '>50K'), sum(df$income == '<=50K'))
+)
+print(summary_data)
+
+ggplot(summary_data, aes(x = Income, y = Count, fill = Income)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Count), vjust = -0.3, size = 4, color = "white") +
+  ggtitle("Comparison of Income Categories") +
+  xlab("Income Category") +
+  ylab("Count") +
+  scale_fill_manual(values = c("red", "green")) +
+  theme_minimal()
+```
+The summary data frame provides a comparison of income categories, indicating the count of individuals earning more than 50,000 Dollars and those earning 50,000 Dollars or less. The bar chart visually represents this information, with the green bars corresponding to individuals with income >$50,000 and the red bars representing individuals with income <=50,000 Dollars. The chart highlights the contrast in counts between the two income categories. 
+\n\n
+The dataset exhibits an imbalance in the income categories, with 7,508 individuals earning more than 50,000 Dollars (>50K) and 22,654 individuals earning 50,000 Dollars or less (<=50K). This imbalance can impact the performance of machine learning models, particularly in scenarios where the algorithm may be biased towards the majority class. Thus this will need to be handled accordingly while prediction
+
+
+## Test of Independence -
+```{r}
+chisq_result <- chisq.test(table(df$income, df$sex))
+print(chisq_result)
+```
+Null Hypothesis (H0): The null hypothesis assumes that there is no association between the variables income and sex in the population.
+Since the p-value is extremely small (less than the conventional significance level of 0.05), there is strong evidence to suggest that gender and income are not independent in the population.
+
+```{r}
+chisq_result <- chisq.test(table(df$income, df$race))
+print(chisq_result)
+```
+Based on the provided result, there is strong evidence to suggest that race and income are not independent in the population. The significant p-value indicates that the observed differences in income levels among different races are unlikely to be due to random chance alone.
+
+
+### Data Preprocessing
+```{r}
+# Converting income column to binary with rule: <50K => 0, >50K => 1
+df = read.csv('adult.csv')
+str(df$income)
+df$income = ifelse(df$income=='>50K',1,0)
+str(df$income)
+```
+
+
+```{r}
+# Creating dummy variables for categorical variables
+categorical_vars <- c("workclass", "marital.status", "occupation", "education", 
+                      "relationship", "race", "sex", "native.country")
+
+df[, categorical_vars] <- lapply(df[, categorical_vars], as.factor)
+df <- cbind(df, model.matrix(~ 0 + ., data = df[, categorical_vars]))
+
+df2 <- df[, !names(df) %in% categorical_vars]
+```
+
+```{r}
+# These columns have now been removed as we have already created a common capital field and the remaining ones were created for EDA purpose (extracted from existing feature)
+columns_to_remove <- c("education.num", "capital.gain", "capital.loss", "education.segment", "hours.per.week.segment")
+df3 <- df2[, !(names(df2) %in% c(columns_to_remove, categorical_vars))]
+```
+
+```{r}
+dim(df3)
+str(df3)
+```
+
+```{r}
+# Save the dataframe
+#View(df)
+write.csv(df3, file = "df.csv", row.names = FALSE)
+```
+
+#### Data Modelling
+```{r}
+df = read.csv("df.csv")
+
+features <- names(df)[!names(df) %in% c("income")]
+
+#sample_indices <- sample(1:nrow(df), 0.8 * nrow(df))
+#train_data <- df[sample_indices, ]
+#test_data <- df[-sample_indices, ]
+
+# Sampling
+index <- createDataPartition(df$income, p = 0.8, list = FALSE)
+
+train_data <- df[index, ]
+test_data <- df[-index, ]
+
+#dim(train_data)
+#dim(test_data)
+
+```
+
+```{r}
+X_train <- as.matrix(train_data[, features, drop = FALSE])
+Y_train <- as.factor(train_data$income)
+
+X_test <- as.matrix(test_data[, features, drop = FALSE])
+Y_test <- as.factor(test_data$income)
+
+dim(X_train)
+length(Y_train)
+dim(X_test)
+length(Y_test)
+```
+
+#### Logistic Regression with Lasso
+```{r}
+# Using formula weight_x = total_samples/2*count_x_samples, where x is either 0 or 1 to assign class weights aiming at solving class imbalance
+class_weights <- ifelse(Y_train == 0, (sum(Y_train==1) + sum(Y_train==0))/ (2*sum(Y_train == 0)), (sum(Y_train==1) + sum(Y_train==0)) / (2*sum(Y_train == 1)))
+
+cv <- cv.glmnet(X_train, Y_train, family = "binomial", alpha = 1, weights = class_weights)
+
+best_lambda <- cv$lambda.min
+plot(cv)
+```
+It can be observed that the minimum Binomial Deviance occurs for a lambda value within the range of -8 to -6 on the log scale. This indicates that the model's performance is optimized when the regularization strength is set to a value within this range. A smaller lambda (closer to -8) would result in a less regularized model, potentially capturing more intricate patterns in the data, but it might be prone to overfitting. On the other hand, a larger lambda (closer to -6) would lead to a more regularized model, emphasizing simplicity and potentially better generalization to new data.
+
+
+```{r}
+final_model <- glmnet(X_train, Y_train, family = "binomial", alpha = 1, lambda = best_lambda, weights = class_weights)
+#dim(predictions)
+
+# Train Accuracy
+train_predictions <- predict(final_model, newx = X_train, type = "class")
+train_accuracy <- mean(train_predictions == Y_train)
+print(paste("Train Accuracy:", round(train_accuracy, 4)))
+
+# Test Accuracy
+predictions <- predict(final_model, newx = X_test, s = best_lambda, type = "response")
+binary_predictions <- ifelse(predictions > 0.5, 1, 0)
+test_accuracy <- mean(binary_predictions == Y_test)
+print(paste("Test Accuracy:", round(test_accuracy, 4)))
+```
+The test accuracy is close to the training accuracy therefore we can say that the model is not overfitting.
+
+
+```{r}
+# Area Under ROC Curve
+roc_curve <- roc(Y_test, predictions)
+auc_score <- auc(roc_curve)
+# ROC Curve
+plot(roc_curve, main = cbind("AUC:", round(auc_score,4)), col = "blue", lwd = 2)
+```
+For the above value of  AUC of 0.88 we can conclude that the  model has excellent discriminatory power, indicating a strong ability to distinguish between positive and negative cases. It's a positive indicator of the model's performance.
+
+
+```{r}
+# Generate class label from probabilities
+binary_predictions <- ifelse(predictions > 0.5, 1, 0)
+#Y <- Y[1:length(binary_predictions)]
+
+# Confusion Matrix
+conf_matrix <- table(Reference = Y_test, Prediction = binary_predictions)
+#print(conf_matrix)
+
+# F-1 Score
+conf_matrix_metrics <- confusionMatrix(table(binary_predictions, Y_test))
+f1_score <- as.numeric(conf_matrix_metrics$byClass["F1"])
+#cat("\nF1 Score:", f1_score, "\n")
+
+plt <- as.data.frame(conf_matrix)
+plt$Prediction <- factor(plt$Prediction, levels=levels(plt$Prediction))
+
+# Plot with discrete axes
+ggplot(plt, aes(Prediction, Reference, fill = Freq)) +
+  geom_tile() + 
+  geom_text(aes(label = Freq)) +
+  scale_fill_gradient(low = "white", high = "#00B0B0") +
+  labs(x = "True Value", y = "Prediction") + ggtitle('F1-score',round(f1_score, 4))
+        
+```
+
+
+#### Decision Tree
+```{r}
+set.seed(11*11)
+dt_model <- rpart(income ~ ., data = train_data, method = "class", )
+
+# Train Accuracy
+train_predictions <- predict(dt_model, newdata = train_data, type = "class")
+train_accuracy <- mean(train_predictions == train_data$income)
+print(paste("Train Accuracy:", round(train_accuracy, 4)))
+
+# Test Accuracy
+dt_predictions <- predict(dt_model, newdata = test_data, type = "class")
+test_accuracy <- mean(dt_predictions == test_data$income)
+print(paste("Test Accuracy:", round(test_accuracy, 4)))
+```
+
+```{r}
+rpart.plot(dt_model, main = "Decision Tree with default params")
+```
+
+```{r}
+head(as.data.frame(dt_model$variable.importance), 20)
+```
+The feature importance values derived from our Decision Trees model unveil critical factors influencing the model's predictions. "Married-civ-spouse" in the marital status category emerges as the most influential feature, underscoring the significance of this marital status in predicting the target variable. Capital-related metrics also exhibit substantial importance, with "Capital" being a major contributor. The "Never-married" status and relationships categorized as "Not-in-family" also play key roles, reflecting the impact of familial and marital dynamics on the model's decisions. Gender, specifically "Male," holds notable importance, emphasizing potential gender-related patterns in the dataset. Age, an inherent demographic factor, ranks high in importance, indicating its substantial role in shaping the decision tree's output. Educational attainment, particularly having a Bachelors's degree and Masters, stands out, highlighting the influence of educational background. Interestingly, "Iran" from the native country category exhibits minimal importance, suggesting a relatively minor impact on the model's predictions. These insights aid in comprehending the feature dynamics crucial for the Decision Trees model's accuracy.
+
+
+```{r}
+# Confusion Matrix
+conf_matrix <- table(Reference = test_data$income, Prediction = dt_predictions)
+#print(conf_matrix)
+
+# F-1 Score
+conf_matrix_metrics <- confusionMatrix(table(dt_predictions, test_data$income))
+f1_score <- as.numeric(conf_matrix_metrics$byClass["F1"])
+#cat("\nF1 Score:", f1_score, "\n")
+
+plt <- as.data.frame(conf_matrix)
+plt$Prediction <- factor(plt$Prediction, levels=levels(plt$Prediction))
+
+# Plot with discrete axes
+ggplot(plt, aes(Prediction, Reference, fill = Freq)) +
+  geom_tile() + 
+  geom_text(aes(label = Freq)) +
+  scale_fill_gradient(low = "white", high = "#00B0B0") +
+  labs(x = "True Value", y = "Prediction") + ggtitle('F1-score',round(f1_score, 4))
+```
+Since, we achieved the  F1 score of 0.889 which is  quite high, indicating a good balance between precision and recall. This suggests that the decision tree model is also performing well in terms of both identifying relevant instances (recall) and avoiding misclassification of non-relevant instances (precision).
+
+
+#### Random Forest
+```{r}
+rf_model <- randomForest(X_train, Y_train, ntree = 100)
+```
+
+```{r}
+# Train Accuracy
+train_predictions <- predict(rf_model, newdata = X_train, type = "class")
+train_accuracy <- mean(train_predictions == Y_train)
+print(paste("Train Accuracy:", round(train_accuracy, 4)))
+
+# Test Accuracy
+rf_predictions <- predict(rf_model, newdata = X_test)
+test_accuracy <- mean(rf_predictions == Y_test)
+print(paste("Test Accuracy:", round(test_accuracy, 4)))
+```
+
+```{r}
+# Confusion Matrix
+conf_matrix <- table(Reference = test_data$income, Prediction = rf_predictions)
+#print(conf_matrix)
+
+# F-1 Score
+conf_matrix_metrics <- confusionMatrix(table(rf_predictions, test_data$income))
+f1_score <- as.numeric(conf_matrix_metrics$byClass["F1"])
+#cat("\nF1 Score:", f1_score, "\n")
+
+plt <- as.data.frame(conf_matrix)
+plt$Prediction <- factor(plt$Prediction, levels=levels(plt$Prediction))
+
+# Plot with discrete axes
+ggplot(plt, aes(Prediction, Reference, fill = Freq)) +
+  geom_tile() + 
+  geom_text(aes(label = Freq)) +
+  scale_fill_gradient(low = "white", high = "#00B0B0") +
+  labs(x = "True Value", y = "Prediction") + ggtitle('F1-score',round(f1_score, 4))
+```
+
+
+
+```{r}
+feature_importance_rf <- rf_model$importance
+
+# Print top 10 features based on importance
+top_features <- head(order(-feature_importance_rf[, 1]), 10)
+print(feature_importance_rf[top_features, ])
+```
+The feature importance values generated by our Random Forest model provide insights into the relative significance of different features in predicting the target variable. Among the key contributors, "Capital Gain" stands out prominently, indicating that this financial metric plays a pivotal role in the model's decision-making. Additionally, the marital status "Married-civ-spouse" carries substantial importance, suggesting that this specific marital status category significantly influences the predictions. Age, a fundamental demographic factor, holds notable importance, emphasizing its role in shaping the model's output. The number of hours worked per week also contributes significantly but to a slightly lesser extent. Furthermore, the educational attainment of having a Bachelors's degree is considered by the model, although with comparatively lower importance. These insights aid in understanding the features that hold importance in the predictive accuracy of the Random Forest model and guide further exploration into the underlying patterns in the dataset.
+
+#### XGBoost
+```{r}
+dtrain <- xgb.DMatrix(data = as.matrix(X_train), label = as.numeric(Y_train) - 1)
+```
+
+```{r}
+dtrain <- xgb.DMatrix(data = as.matrix(X_train), label = as.numeric(Y_train) - 1)
+
+xgb_grid <- expand.grid(
+  nrounds = c(50, 100, 150),
+  max_depth = c(3, 6, 9),          
+  eta = c(0.01, 0.1, 0.3),           # Learning rate
+  gamma = 0,                         
+  colsample_bytree = 1,             
+  min_child_weight = 1,             
+  subsample = 1                     
+)
+
+ctrl <- trainControl(
+  method = "cv",                    
+  number = 5,                        # Number of folds
+  search = "grid"                   
+)
+```
+
+
+```{r}
+xgb_model <- train(
+  x = as.matrix(X_train),
+  y = as.factor(Y_train),
+  method = "xgbTree",
+  trControl = ctrl,
+  tuneGrid = xgb_grid
+)
+```
+
+```{r}
+xgb_predictions <- predict(xgb_model, as.matrix(X_train))
+actual_values <- as.matrix(Y_train)
+training_accuracy <- mean(xgb_predictions == actual_values)
+training_accuracy
+```
+
+
+```{r}
+xgb_predictions <- predict(xgb_model, newdata = as.matrix(X_test))
+actual_values <- as.matrix(Y_test)
+testing_accuracy <- mean(xgb_predictions == actual_values)
+testing_accuracy
+
+
+conf_matrix_xgb <- confusionMatrix(xgb_predictions, Y_test)
+print(conf_matrix_xgb)
+```
+
+```{r}
+f1_score_xgb <- conf_matrix_xgb$byClass["F1"]
+cat("F1 Score:", f1_score_xgb, "\n")
+```
+
+```{r}
+xgb.importance(model = xgb_model$finalModel)
+```
+
+We delved into training and evaluating an XGBoost model for predicting income levels based on various features. The goal was to fine-tune the model's hyperparameters and assess its performance on a test dataset.
+Hyperparameter Tuning: Parameters such as nrounds (number of boosting rounds), max_depth (maximum tree depth), eta (learning rate), and others were optimized through cross-validation to enhance the model's predictive capabilities. F1 score, a balanced metric considering both precision and recall, was computed. Achieving a high F1 score (0.9208387) indicated the model's strong predictive capabilities.
+The xgb.importance function helped identify critical features influencing the model's decisions.
+Top Features: Education levels (Prof-school, Doctorate, 7th-8th), occupation, relationship status, workclass, and gender emerged as the most influential features.
+
+The chosen hyperparameters (e.g., nrounds, max_depth, eta) were carefully selected to strike a balance between model complexity and predictive accuracy.
+Grid Search: A grid search strategy was adopted to systematically explore different combinations of hyperparameters, optimizing the model for robust performance.
+
+
+
+#### K nearest neighbors
+```{r}
+compute_accuracy <- function(k) {
+  knn_model <- knn(train = as.matrix(X_train), test = as.matrix(X_test), cl = Y_train, k = k)
+  acc <- sum(knn_model == Y_test) / length(Y_test)
+  return(acc)
+}
+
+compute_f1_score <- function(k) {
+  knn_model <- knn(train = as.matrix(X_train), test = as.matrix(X_test), cl = Y_train, k = k)
+  f1 <- F1_Score(knn_model, Y_test)
+  return(f1)
+}
+k_values <- seq(1, 20, by = 1)
+accuracy_values <- sapply(k_values, compute_accuracy)
+
+optimal_k <- k_values[which.max(accuracy_values)]
+print(paste("Optimal Number of Neighbors (k):", optimal_k))
+
+optimal_f1_score <- compute_f1_score(optimal_k)
+print(paste("F1 Score for Optimal k:", optimal_f1_score))
+
+final_knn_model <- knn(train = as.matrix(X_train), test = as.matrix(X_test), cl = Y_train, k = optimal_k)
+
+conf_matrix_knn <- confusionMatrix(final_knn_model, Y_test)
+print("Confusion Matrix:")
+print(conf_matrix_knn)
+```
+
+```{r}
+# Function to compute accuracy, F1 score, and confusion matrix for a given 'k'
+compute_metrics <- function(k) {
+  # Training accuracy
+  knn_model_train <- knn(train = as.matrix(X_train), test = as.matrix(X_train), cl = Y_train, k = k)
+  train_acc <- sum(knn_model_train == Y_train) / length(Y_train)
+  
+  # Test accuracy
+  knn_model_test <- knn(train = as.matrix(X_train), test = as.matrix(X_test), cl = Y_train, k = k)
+  test_acc <- sum(knn_model_test == Y_test) / length(Y_test)
+  
+  # F1 score
+  f1_score <- F1_Score(knn_model_test, Y_test)
+  
+  # Confusion matrix
+  conf_matrix <- confusionMatrix(knn_model_test, Y_test)
+  
+  return(list(train_accuracy = train_acc, test_accuracy = test_acc, f1 = f1_score, confusion_matrix = conf_matrix))
+}
+
+k_values <- seq(19, 20, by = 1)
+metrics_values <- lapply(k_values, function(k) compute_metrics(k))
+
+# Find the optimal 'k' based on test accuracy
+optimal_k <- k_values[which.max(sapply(metrics_values, function(m) m$test_accuracy))]
+print(paste("Optimal Number of Neighbors (k):", optimal_k))
+
+# Get metrics for the optimal 'k'
+optimal_metrics <- metrics_values[[which(k_values == optimal_k)]]
+print(paste("Training Accuracy for Optimal k:", optimal_metrics$train_accuracy))
+print(paste("Test Accuracy for Optimal k:", optimal_metrics$test_accuracy))
+print(paste("F1 Score for Optimal k:", optimal_metrics$f1))
+print("Confusion Matrix:")
+print(optimal_metrics$confusion_matrix)
+```
+We performed a k-Nearest Neighbors (KNN) analysis to predict income. We created functions to compute accuracy and F1 score for different values of 'k', ranging from 1 to 20. The optimal 'k' was determined based on the highest accuracy, and the corresponding F1 score was computed.
+
+The results indicate that the optimal number of neighbors (k) for this dataset is 18, achieving an accuracy of 79.6%.
+
+The F1 score is 0.878, indicating a good balance between precision and recall for the chosen 'k'. This KNN model demonstrates high sensitivity (true positive rate) of 98.35%, suggesting its effectiveness in identifying instances with income <=50K.
+
+#### Naive Bayes 
+```{r}
+nb_model <- naiveBayes(income ~ ., data = train_data)
+
+nb_predictions <- predict(nb_model, newdata = test_data)
+
+
+F1_Score_nb <- F1_Score(nb_predictions, Y_test)
+print(paste("F1 Score: ", F1_Score_nb))
+```
+
+```{r}
+nb_predictions <- predict(nb_model, train_data)
+actual_values <- train_data$income
+training_accuracy <- mean(nb_predictions == actual_values)
+training_accuracy
+```
+
+```{r}
+conf_matrix_nb <- confusionMatrix(nb_predictions, Y_test)
+print(conf_matrix_nb)
+```
+
+We now apply a Naive Bayes classification model to predict income. The F1 score was computed for the Naive Bayes model, resulting in a value of 0.596.
+
+The confusion matrix further breaks down the model's performance. It correctly predicted 1,964 instances of income class '0' (<=50K) and 1,410 instances of class '1' (>50K). However, there were misclassifications, with 87 instances of '0' being predicted as '1' and 2,572 instances of '1' being predicted as '0'.
+
+The overall accuracy of the Naive Bayes model is 55.93%, which is lower than some other models previously evaluated. 
+
+In summary, the Naive Bayes model demonstrated moderate performance.
+
+
+#### Final comparison
+```{r}
+f1_scores <- c(0.8454, 0.8893, 0.9024, 0.9058, 0.8650, 0.6245)
+
+model_names <- c("Logistic Regression", "Decision Tree", "Random Forest", "XGBoost", "KNN", "Naive Bayes")
+
+comparison_data <- data.frame(Model = model_names, F1_Score = f1_scores)
+
+ggplot(comparison_data, aes(x = reorder(Model, -f1_scores), y = F1_Score, fill = Model)) +
+  geom_bar(stat = "identity") +
+  ylim(0, 1) +  
+  labs(title = "Model Comparison - F1 Scores", x = "Model", y = "F1 Score") + 
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+
+The F1 scores for various machine learning models were compared to evaluate their performance in predicting income classes.
+
+
+Logistic Regression achieved a moderate F1 score, indicating a balanced trade-off between precision and recall. The Decision Tree model demonstrated a high F1 score, suggesting strong predictive performance with good balance between precision and recall. Random Forest performed exceptionally well, achieving a high F1 score and indicating robust performance in predicting income classes. XGBoost showed the highest F1 score among the models, indicating superior predictive performance and a well-balanced precision-recall trade-off.
+KNN achieved a good F1 score, suggesting effective classification with a balanced approach between precision and recall.
+Naive Bayes demonstrated a lower F1 score compared to other models, indicating less balanced precision and recall in predicting income classes.
+
+Since models like Random forest, XGBoost, Decision trees and KNN are capable of capturing non-linear relationships due to their hierarchical, tree-based structures as compared to logistic regression and Naive Byaes which assume linear relationship and cannot handle non-linearities, we can infer that the data used for our project indeed have non-linear relationships between the target and input variables, and so we see better performance for those models which can capture the nonlinearities in a dataset.
